@@ -14,7 +14,7 @@ import (
 	"io/ioutil"
 	"bufio"
 	"time"
-	//"container/list"
+	"container/list"
 )
 
 const ESTFormat = "Jan 2 15:04:05 EST"
@@ -33,6 +33,11 @@ type Bot interface {
 	ReadCredentials() error
 	Say(msg string)
 	Start()
+
+
+	// Push/pop methods
+	Push(p Player) error
+	Pop() error
 }
 
 type OAuthCred struct {
@@ -43,6 +48,7 @@ type OAuthCred struct {
 // Our QBot, who stores a queue of players
 type QBot struct {
 	conn           net.Conn
+	MaxSize        int 
 	Channel        string
 	Credentials    *OAuthCred
 	MsgRate        time.Duration
@@ -51,6 +57,7 @@ type QBot struct {
 	PrivatePath    string
 	Server         string
 	StartTime      time.Time
+	Queue          *list.List
 }
 
 type Message struct {
@@ -158,6 +165,32 @@ func (qb *QBot) ProcessMsg(msg Message) error {
 	return nil
 }
 
+
+func (qb *QBot) Push(p Player) error {
+
+	if qb.Queue.Len() >= qb.MaxSize {
+		return errors.New("Push: queue at maximum limit")
+	}
+
+	qb.Queue.PushBack(p)
+	return nil
+}
+
+func (qb *QBot) Pop(popsize int) error {
+	qlen := qb.Queue.Len()
+	
+	if qlen == 0 {
+		return errors.New("Pop: queue is empty")
+	}
+
+	if qlen <= popsize {
+		return errors.New("Pop: requested size greater than queue")
+	}
+
+	
+	return nil
+}
+
 func (qb *QBot) Say(msg string) error {
 	if msg == "" {
 		return errors.New("Say: message was empty")
@@ -200,5 +233,15 @@ func timeStamp() string {
 
 
 func main() {
+	// TODO: make read from file
+
+	/*
+	bot := QBot{
+
+	}
+*/
+
+	//bot.Start()
+	
 	fmt.Println("Hello!")
 }

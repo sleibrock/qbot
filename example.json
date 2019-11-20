@@ -1,8 +1,7 @@
 {
-    Channel: "some_twitch_channel",
-    Rate: 1.0,
     Name: "SomeTwitchBot",
-    Port: 6667,
+    Channel: "some_twitch_channel",
+    Port: "6667",
     Server: "irc.chat.twitch.tv",
-    PrivateKey: "abcdefghijklmnopqrstuvwxyz",
+    Password: "type_in_your_password_here",
 }

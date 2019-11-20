@@ -10,110 +10,156 @@ import (
 	"regexp"
 	"errors"
 	"log"
-	"io"
+	"os"
+	//"io"
 	"io/ioutil"
 	"bufio"
 	"time"
 	"container/list"
 )
 
+// Message parsing and date stuff
 const ESTFormat = "Jan 2 15:04:05 EST"
 var MsgRegex *regexp.Regexp = regexp.MustCompile(`^:(\w+)!\w+@\w+\.tmi\.twitch\.tv (PRIVMSG) #\w+(?: :(.*))?$`)
 
 var CmdRegex *regexp.Regexp = regexp.MustCompile(`^!(\w+)\s?(\w+)?`)
 
-
-// A very basic Bot interface for any chat bots
-type Bot interface {
-	Connect()
-	Disconnect()
-	JoinChannel()
-	ReadPort() error
-	ProcessMsg(msg Message) error
-	ReadCredentials() error
-	Say(msg string)
-	Start()
-
-
-	// Push/pop methods
-	Push(p Player) error
-	Pop() error
-}
-
+/*
+//deprecated, removing later
 type OAuthCred struct {
 	Password string `json:"password,omitempty"`
 	ClientID string `json:"client_id,omitempty"`
 }
+*/
+
+
+// Information needed to join an IRC server/channel
+type Settings struct {
+	Name     string `json:"name"`
+	Channel  string `json:"channel"`
+	Password string `json:"password"`
+	Port     string `json:"port"`
+	Server   string `json:"server"`
+}
 
 // Our QBot, who stores a queue of players
 type QBot struct {
+	// actual tcp connection object 
 	conn           net.Conn
-	MaxSize        int 
-	Channel        string
-	Credentials    *OAuthCred
+
+	// bot settings/data read from external file
+	Config         *Settings
+
+	// Bot timers
 	MsgRate        time.Duration
-	Name           string
-	Port           string
-	PrivatePath    string
-	Server         string
 	StartTime      time.Time
-	Queue          *list.List
+
+	// fields related to the queue itself
+	MaxSize        int 
+	queue          *list.List
 }
 
+// A message struct containing a Username and a message string (Contents)
 type Message struct {
 	Name      string
 	Contents  string
 	TimeRecv  time.Time
 }
 
+// A struct representing a Player and the time they joined the queue
 type Player struct {
 	Name string
 	TimeJoined string
 }
 
+
+// Quick wrapper to create a new message with a current time
+func NewMsg(name string, msg string) Message {
+	return Message{
+		Name: name,
+		Contents: msg,
+		TimeRecv: time.Now(),
+	}
+}
+
+
+// Initializer to create a new QBot
+func NewBot(path string) (*QBot, error) {
+	// reads from the file
+	file, err := ioutil.ReadFile(path)
+	if nil != err {
+		return &QBot{}, err
+	}
+	
+	config := &Settings{}
+
+	// json parse attempt #2
+	err = json.Unmarshal(file, config)
+	if err != nil {
+		return &QBot{}, err
+	}
+
+	// do initialization here
+	qb := QBot {
+		Config: config,
+		MaxSize: 100,
+		queue: list.New(),
+		MsgRate: time.Duration(2/3) * time.Millisecond,
+		StartTime: time.Now(),
+	}
+
+	return &qb, nil
+
+}
+
+
+// Debug info to show what information was read from a key file
+func (qb *QBot) Debug() {
+	fmt.Printf("--- Bot Debug information ---\n")
+	fmt.Printf("Name: %s\n", qb.Config.Name)
+	fmt.Printf("Channel: %s\n", qb.Config.Channel)
+	fmt.Printf("Server: %s\n", qb.Config.Server)
+	fmt.Printf("Port: %s\n", qb.Config.Port)
+	fmt.Printf("Password: hidden\n")
+	fmt.Printf("--- Ending Debug ---\n")
+}
+
+
+// Tell the bot to connect to it's target server
 func (qb *QBot) Connect() {
 	var err error
-	fmt.Println("Connecting to %s ... ", qb.Server)
-	qb.conn, err = net.Dial("tcp", qb.Server+":"+qb.Port)
+	fmt.Printf("Connecting to %s ... \n", qb.Config.Server)
+	qb.conn, err = net.Dial("tcp", qb.Config.Server+":"+qb.Config.Port)
 	if err != nil {
-		fmt.Println("Cannot connect to %s", qb.Server)
+		log.Fatal("Cannot connect to %s", qb.Config.Server)
 		return
 	}
-	fmt.Println("Connected to %s", qb.Server)
+	fmt.Printf("Connected to %s\n", qb.Config.Server)
 	qb.StartTime = time.Now()
 }
 
+
+// Disconnect and close the TCP port
 func (qb *QBot) Disconnect() {
 	qb.conn.Close()
 	upTime := time.Now().Sub(qb.StartTime).Seconds()
-	fmt.Println("Closed connection, live for %fs", upTime)
+	fmt.Printf("Closed connection, live for %fs", upTime)
 }
 
+
+// Tell the bot to Join it's target channel
 func (qb *QBot) JoinChannel() {
-	fmt.Println("Joining #%s ...", qb.Channel)
-	qb.conn.Write([]byte("PASS " + qb.Credentials.Password + "\r\n"))
-	qb.conn.Write([]byte("NICK " + qb.Name + "\r\n"))
-	qb.conn.Write([]byte("JOIN #" + qb.Channel + "\r\n"))
-	fmt.Println("Joined channel #%s", qb.Channel)
+	fmt.Printf("Joining #%s ...\n", qb.Config.Channel)
+	qb.conn.Write([]byte("PASS " + qb.Config.Password + "\r\n"))
+	qb.conn.Write([]byte("NICK " + qb.Config.Name + "\r\n"))
+	qb.conn.Write([]byte("JOIN #" + qb.Config.Channel + "\r\n"))
+	fmt.Printf("Joined channel #%s\n", qb.Config.Channel)
 }
 
-func (qb *QBot) ReadCredentials() error {
-	credFile, err := ioutil.ReadFile(qb.PrivatePath)
-	if err != nil {
-		return err
-	}
 
-	qb.Credentials = &OAuthCred{}
-
-	dec := json.NewDecoder(strings.NewReader(string(credFile)))
-	if err = dec.Decode(qb.Credentials); err != nil && err != io.EOF {
-		return err
-	}
-	return nil
-}
-
+// Read from the TCP port and process data on an infinite loop
 func (qb *QBot) ReadPort() error {
-	fmt.Println("Watching #%s ...", qb.Channel)
+	fmt.Printf("Watching #%s ...\n", qb.Config.Channel)
 
 	tp := textproto.NewReader(bufio.NewReader(qb.conn))
 
@@ -125,8 +171,16 @@ func (qb *QBot) ReadPort() error {
 			return errors.New("HandleChatMessage: failed to read line from channel.")
 		}
 
+		// TODO: create a toggle parameter to display full IRC output?
+		//fmt.Println(line)
+
 		if line == "PING :tmi.twitch.tv" {
-			qb.conn.Write([]byte("PONG :tmi.twitch.tv\r\n"))
+			fmt.Printf("Received PING, replying\n")
+			_, err := qb.conn.Write([]byte("PONG :tmi.twitch.tv\r\n"))
+			if err != nil {
+				log.Fatal("Couldn't write PONG reply to server")
+			}
+			continue
 		} else {
 			matches := MsgRegex.FindStringSubmatch(line)
 			if matches != nil {
@@ -137,21 +191,16 @@ func (qb *QBot) ReadPort() error {
 				switch msgType {
 				case "PRIVMSG":
 					msg := matches[3]
-					fmt.Println("[%s] %s", userName, msg)
+					fmt.Printf("[%s] %s\n", userName, msg)
 
-					msgThing := Message{ 
-						Name: userName,
-						Contents: msg,
-						TimeRecv: time.Now(),
-					}
-
+					msgThing := NewMsg(userName, msg)
 					err := qb.ProcessMsg(msgThing)
 					if err != nil {
 						log.Fatal(err)
 					}
 
 				default:
-					// nothing
+					// nothing of note, ignore
 				}
 			}
 		}
@@ -159,25 +208,55 @@ func (qb *QBot) ReadPort() error {
 	}
 }
 
+// When receiving text input, determine if any of it should dispatch
+// to QBot commands
 func (qb *QBot) ProcessMsg(msg Message) error {
+	// here is where we will delegate commands based on messages
 
+	// split the arguments up
+	splits := strings.Split(msg.Contents, " ")
+	var err error
+
+	// TODO: fully implement command dispatch
+	//fmt.Println("Split[0]:", splits[0])
+	switch splits[0] {
+	case "!test":
+		err = qb.Say("Showing test data")
+	case "!join":
+		err = qb.Say("Joined the queue")
+	case "!leave":
+		err = qb.Say("Left the queue")
+	case "!queue":
+		err = qb.Say("showing queue")
+	default:
+		// nothing, no command found
+	}
+
+	// check if message is from owner, then check against owner-only funcs 
+
+	if err != nil {
+		log.Fatal(err)
+		return err
+	}
 
 	return nil
 }
 
 
+// TODO: finish implementation
 func (qb *QBot) Push(p Player) error {
-
-	if qb.Queue.Len() >= qb.MaxSize {
+	if qb.queue.Len() >= qb.MaxSize {
 		return errors.New("Push: queue at maximum limit")
 	}
 
-	qb.Queue.PushBack(p)
+	qb.queue.PushBack(p)
 	return nil
 }
 
+
+// TODO: finish implementation
 func (qb *QBot) Pop(popsize int) error {
-	qlen := qb.Queue.Len()
+	qlen := qb.queue.Len()
 	
 	if qlen == 0 {
 		return errors.New("Pop: queue is empty")
@@ -187,16 +266,30 @@ func (qb *QBot) Pop(popsize int) error {
 		return errors.New("Pop: requested size greater than queue")
 	}
 
+	var msg string
+
+	for i := 0; i < popsize; i++ {
+		msg += "string "
+		fmt.Println("Attempting to pop a player")
+	}
+
 	
 	return nil
 }
 
+// Display/print the current queue to the chatroom
+func (qb *QBot) ShowQueue() error {
+	return nil
+}
+
+
+// Print a message out from the Bot
 func (qb *QBot) Say(msg string) error {
 	if msg == "" {
 		return errors.New("Say: message was empty")
 	}
 
-	_, err := qb.conn.Write([]byte(fmt.Sprintf("PRIVMSG #%s %s\r\n", qb.Channel, msg)))
+	_, err := qb.conn.Write([]byte(fmt.Sprintf("PRIVMSG #%s :%s\r\n", qb.Config.Channel, msg)))
 	if err != nil {
 		return err
 	}
@@ -205,16 +298,10 @@ func (qb *QBot) Say(msg string) error {
 
 
 func (qb *QBot) Start() {
-	err := qb.ReadCredentials()
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-
 	for {
 		qb.Connect()
 		qb.JoinChannel()
-		err = qb.ReadPort()
+		err := qb.ReadPort()
 		if err != nil {
 			time.Sleep(1000 * time.Millisecond)
 			log.Fatal(err)
@@ -226,22 +313,34 @@ func (qb *QBot) Start() {
 	}
 }
 
+// quick timestamp function to properly format a date
 func timeStamp() string {
 	return time.Now().Format(ESTFormat)
 }
 
 
 
+// Main function to be run on program start
 func main() {
-	// TODO: make read from file
+	fmt.Println("=== QBot version 0.1 ===")
+	fmt.Println("Parsing arguments")
 
-	/*
-	bot := QBot{
-
+	args := os.Args
+	if len(args) != 2 {
+		log.Fatal(errors.New("QBot.main(): No input file supplied"))
+		return
 	}
-*/
 
-	//bot.Start()
+	bot, err := NewBot(args[1]) 
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
+	bot.Debug()
+	bot.Start()
 	
-	fmt.Println("Hello!")
 }
+
+
+// end qbot.go

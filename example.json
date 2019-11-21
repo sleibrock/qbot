@@ -1,7 +1,7 @@
 {
-    Name: "SomeTwitchBot",
-    Channel: "some_twitch_channel",
-    Port: "6667",
-    Server: "irc.chat.twitch.tv",
-    Password: "type_in_your_password_here",
+    "name": "SomeTwitchBot",
+    "channel": "some_twitch_channel",
+    "port": "6667",
+    "server": "irc.chat.twitch.tv",
+    "password": "put_your_oauth_password_here"
 }

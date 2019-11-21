@@ -18,6 +18,9 @@ import (
 	"container/list"
 )
 
+// Default key file to look for in the same directory
+const DefaultKeyFile = "botdata.json"
+
 // Message parsing and date stuff
 const ESTFormat = "Jan 2 15:04:05 EST"
 var MsgRegex *regexp.Regexp = regexp.MustCompile(`^:(\w+)!\w+@\w+\.tmi\.twitch\.tv (PRIVMSG) #\w+(?: :(.*))?$`)
@@ -68,8 +71,8 @@ type Message struct {
 
 // A struct representing a Player and the time they joined the queue
 type Player struct {
-	Name string
-	TimeJoined string
+	Name       string
+	TimeJoined time.Time 
 }
 
 
@@ -79,6 +82,13 @@ func NewMsg(name string, msg string) Message {
 		Name: name,
 		Contents: msg,
 		TimeRecv: time.Now(),
+	}
+}
+
+func (m *Message) ToPlayer() Player {
+	return Player{
+		Name: m.Name,
+		TimeJoined: time.Now(),
 	}
 }
 
@@ -194,7 +204,7 @@ func (qb *QBot) ReadPort() error {
 					fmt.Printf("[%s] %s\n", userName, msg)
 
 					msgThing := NewMsg(userName, msg)
-					err := qb.ProcessMsg(msgThing)
+					err := qb.ProcessMsg(&msgThing)
 					if err != nil {
 						log.Fatal(err)
 					}
@@ -210,7 +220,7 @@ func (qb *QBot) ReadPort() error {
 
 // When receiving text input, determine if any of it should dispatch
 // to QBot commands
-func (qb *QBot) ProcessMsg(msg Message) error {
+func (qb *QBot) ProcessMsg(msg *Message) error {
 	// here is where we will delegate commands based on messages
 
 	// split the arguments up
@@ -220,22 +230,18 @@ func (qb *QBot) ProcessMsg(msg Message) error {
 	// TODO: fully implement command dispatch
 	//fmt.Println("Split[0]:", splits[0])
 	switch splits[0] {
-	case "!test":
-		err = qb.Say("Showing test data")
 	case "!join":
-		err = qb.Say("Joined the queue")
+		err = qb.JoinQueue(msg, splits[1:])
 	case "!leave":
-		err = qb.Say("Left the queue")
+		err = qb.LeaveQueue(msg, splits[1:])
 	case "!queue":
-		err = qb.Say("showing queue")
+		err = qb.ShowQueue(msg, splits[1:])
 	default:
 		// nothing, no command found
 	}
 
 	// check if message is from owner, then check against owner-only funcs 
-
 	if err != nil {
-		log.Fatal(err)
 		return err
 	}
 
@@ -278,7 +284,72 @@ func (qb *QBot) Pop(popsize int) error {
 }
 
 // Display/print the current queue to the chatroom
-func (qb *QBot) ShowQueue() error {
+func (qb *QBot) ShowQueue(msg *Message, args []string) error {
+	node := qb.queue.Front()
+
+	if node == nil {
+		fmt.Println("Queue is empty")
+		return nil
+	}
+
+	for i := 0; node != nil; i++ {
+		p := node.Value.(Player)
+		fmt.Printf("%d) %s\n", i, p.Name)
+		node = node.Next()
+	}
+
+
+	return nil
+}
+
+// Join the queue
+func (qb *QBot) JoinQueue(msg *Message, args []string) error {
+	fmt.Printf("Received request to join queue from %s\n", msg.Name)
+
+	p := msg.ToPlayer()
+	node := qb.queue.Front()
+
+	for i := 0; node != nil; i++ {
+		o := node.Value.(Player)
+		if p.Name == o.Name {
+			fmt.Printf("%s already in queue, skipping\n", p.Name)
+			return nil
+		}
+		node = node.Next()
+	}
+	
+	err := qb.Push(msg.ToPlayer())
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Leave the queue
+func (qb *QBot) LeaveQueue(msg *Message, args []string) error {
+	fmt.Printf("Received request to leave queue from %s\n", msg.Name)
+
+	p := msg.ToPlayer()
+	node := qb.queue.Front()
+
+	// scan the entire queue to find our target player to remove
+	for i := 0; node != nil; i++ {
+		o := node.Value.(Player)
+
+		if p.Name == o.Name {
+			fmt.Printf("Found player %s in queue\n", p.Name)
+			qb.queue.Remove(node)
+			return nil
+		}
+		node = node.Next()
+	}
+
+	if node == nil {
+		fmt.Printf("%s not found in queue\n", p.Name)
+		return nil
+	}
+	
 	return nil
 }
 
@@ -287,6 +358,10 @@ func (qb *QBot) ShowQueue() error {
 func (qb *QBot) Say(msg string) error {
 	if msg == "" {
 		return errors.New("Say: message was empty")
+	}
+
+	if len(msg) > 500 {
+		return errors.New("Say: message size exceeded byte limit of 500")
 	}
 
 	_, err := qb.conn.Write([]byte(fmt.Sprintf("PRIVMSG #%s :%s\r\n", qb.Config.Channel, msg)))

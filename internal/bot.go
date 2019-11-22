@@ -27,9 +27,7 @@ const DefaultKeyFile = "botdata.json"
 // Message parsing and date stuff
 const ESTFormat = "Jan 2 15:04:05 EST"
 var MsgRegex *regexp.Regexp = regexp.MustCompile(`^:(\w+)!\w+@\w+\.tmi\.twitch\.tv (PRIVMSG) #\w+(?: :(.*))?$`)
-
 var CmdRegex *regexp.Regexp = regexp.MustCompile(`^!(\w+)\s?(\w+)?`)
-
 
 
 // Our QBot, who stores a queue of players
@@ -147,7 +145,6 @@ func (qb *QBot) ReadPort() error {
 		} else {
 			matches := MsgRegex.FindStringSubmatch(line)
 			if matches != nil {
-
 				userName := matches[1]
 				msgType := matches[2]
 
@@ -161,7 +158,6 @@ func (qb *QBot) ReadPort() error {
 					if err != nil {
 						log.Fatal(err)
 					}
-
 				default:
 					// nothing of note, ignore
 				}
@@ -170,6 +166,7 @@ func (qb *QBot) ReadPort() error {
 		time.Sleep(qb.MsgRate)
 	}
 }
+
 
 // When receiving text input, determine if any of it should dispatch
 // to QBot commands
@@ -192,72 +189,65 @@ func (qb *QBot) ProcessMsg(msg *Message) error {
 	default:
 		// nothing, no command found
 	}
-
+	
 	// check if message is from owner, then check against owner-only funcs 
-	if err != nil {
-		return err
+	if qb.Config.Name == msg.Name {
+		switch splits[0] {
+		case "!pop":
+			err = qb.PopPlayers(msg, splits[1:])
+		default:
+			// nothing else
+		}
 	}
 
-	return nil
+	return err
 }
 
-
-// TODO: finish implementation
-func (qb *QBot) Push(p Player) error {
-	if qb.queue.Len() >= qb.MaxSize {
-		return errors.New("Push: queue at maximum limit")
-	}
-
-	qb.queue.PushBack(p)
-	return nil
-}
-
-
-// TODO: finish implementation
-func (qb *QBot) Pop(popsize int) error {
-	qlen := qb.queue.Len()
-	
-	if qlen == 0 {
-		return errors.New("Pop: queue is empty")
-	}
-
-	if qlen <= popsize {
-		return errors.New("Pop: requested size greater than queue")
-	}
-
-	var msg string
-
-	for i := 0; i < popsize; i++ {
-		msg += "string "
-		fmt.Println("Attempting to pop a player")
-	}
-
-	
-	return nil
-}
 
 // Display/print the current queue to the chatroom
 func (qb *QBot) ShowQueue(msg *Message, args []string) error {
+	qlen := qb.queue.Len()
 	node := qb.queue.Front()
 
 	if node == nil {
-		fmt.Println("Queue is empty")
+		qb.Say("Queue is empty")
 		return nil
 	}
 
-	for i := 0; node != nil; i++ {
+	out := "Queue: "
+	var i int
+
+	for i = 0; node != nil && i < 3; i++ {
 		p := node.Value.(Player)
-		fmt.Printf("%d) %s\n", i, p.Name)
+		out += p.Name
+
 		node = node.Next()
+		if node != nil {
+			switch i {
+			case 2:
+				out += " ..."
+			default:
+				out += ", "
+			}
+		}
 	}
 
+	if i < qlen {
+		out += fmt.Sprintf(" (%s more)", (qlen-i))
+	}
 
+	qb.Say(out)
 	return nil
 }
+
 
 // Join the queue
 func (qb *QBot) JoinQueue(msg *Message, args []string) error {
 	fmt.Printf("Received request to join queue from %s\n", msg.Name)
+
+	if qb.queue.Len() >= qb.MaxSize {
+		return errors.New("Push: queue at maximum limit")
+	}
 
 	p := msg.ToPlayer()
 	node := qb.queue.Front()
@@ -270,14 +260,12 @@ func (qb *QBot) JoinQueue(msg *Message, args []string) error {
 		}
 		node = node.Next()
 	}
-	
-	err := qb.Push(msg.ToPlayer())
-	if err != nil {
-		return err
-	}
 
+	qb.queue.PushBack(msg.ToPlayer())
+	qb.Say(fmt.Sprintf("%s has joined the queue", p.Name))
 	return nil
 }
+
 
 // Leave the queue
 func (qb *QBot) LeaveQueue(msg *Message, args []string) error {
@@ -291,7 +279,7 @@ func (qb *QBot) LeaveQueue(msg *Message, args []string) error {
 		o := node.Value.(Player)
 
 		if p.Name == o.Name {
-			fmt.Printf("Found player %s in queue\n", p.Name)
+			qb.Say(fmt.Sprintf("%s has left the queue", p.Name))
 			qb.queue.Remove(node)
 			return nil
 		}
@@ -299,10 +287,49 @@ func (qb *QBot) LeaveQueue(msg *Message, args []string) error {
 	}
 
 	if node == nil {
-		fmt.Printf("%s not found in queue\n", p.Name)
-		return nil
+		qb.Say(fmt.Sprintf("@%s you are not in queue", p.Name))
 	}
+	return nil
+}
+
+
+// Pop players from the front of the queue
+// TODO: add variable amount of players to pop
+func (qb *QBot) PopPlayers(msg *Message, args []string) error {
+	fmt.Printf("Received request to pop a player off the stack\n")
+
+	qlen := qb.queue.Len()
+	popsize := 1
 	
+	if qlen == 0 {
+		return errors.New("Pop: queue is empty")
+	}
+
+	if popsize > qlen {
+		return errors.New("Pop: requested size greater than queue")
+	}
+
+	node := qb.queue.Front()
+	out := "Next player(s): "
+
+	for i := 0; i < popsize; i++ {
+
+		c := node.Value.(Player)
+
+		out += c.Name
+
+		if i < (popsize-1) {
+			out += ", "
+		}
+
+		// remove the node
+		qb.queue.Remove(node)
+		node = qb.queue.Front()
+	}
+
+	fmt.Print(out)
+	qb.Say(out)
+
 	return nil
 }
 

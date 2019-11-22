@@ -8,8 +8,21 @@ In order to use this, you must generate an OAuth code for Twitch by connecting y
 
 ```bash
 # linux/macos
-$ ./qbot your_config.json
+$ ./qbot
 
 # windows
-$ ./qbot.exe your_config.json
+$ ./qbot.exe 
+```
+
+Upon first execution, you will be given a file `botdata.json` to fill out where you input your Twitch details (username, channel), and must put in an OAuth password generated from [Twitch OAuth Chat Integration](https://twitchapps.com/tmi).
+
+## Commands
+
+```bash
+!queue  - show the queue
+!join   - join the queue (multiple joins are not allowed)
+!leave  - leave the queue
+
+# owner only commands
+!pop    - pop a number of players from the queue
 ```

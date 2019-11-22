@@ -7,7 +7,7 @@ LDFLAGS = -X main.Version=$(VERSION) -extldflags "-static"
 
 all: $(BINARY)
 
-$(BINARY): *.go
+$(BINARY): *.go */*.go
 	go build qbot.go
 
 clean:

@@ -12,6 +12,7 @@ import (
 	"github.com/sleibrock/qbot/internal"
 )
 
+
 // Main function to be run on program start
 func main() {
 	fmt.Println("=== QBot version 0.1 ===")
@@ -42,9 +43,9 @@ func main() {
 		fmt.Println("")
 		fmt.Println("[Press any key to exit]")
 
+		// eat a single line to quit
 		reader := bufio.NewReader(os.Stdin)
 		reader.ReadString('\n')
-		
 		return
 	}
 
@@ -56,7 +57,6 @@ func main() {
 
 	bot.Debug()
 	bot.Start()
-	
 }
 
 

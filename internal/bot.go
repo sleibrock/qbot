@@ -12,11 +12,10 @@ import (
 	//"os"
 	//"io"
 	//"io/ioutil"
+	"strconv"
 	"bufio"
 	"time"
 	"container/list"
-	//  user defined
-	//"github.com/sleibrock/qbot/internal"
 )
 
 
@@ -299,23 +298,37 @@ func (qb *QBot) PopPlayers(msg *Message, args []string) error {
 	fmt.Printf("Received request to pop a player off the stack\n")
 
 	qlen := qb.queue.Len()
-	popsize := 1
-	
+
+	// check if queue is empty so we can skip doing any work
 	if qlen == 0 {
 		return errors.New("Pop: queue is empty")
 	}
 
+	// check if args were supplied via the command
+	// i.e. !pop 5
+	var popsize int
+	var err error
+	if len(args) > 0 {
+		popsize, err = strconv.Atoi(args[0])
+		if err != nil {
+			fmt.Printf("Couldn't convert %s to an integer", args[0])
+			popsize = 1
+		}
+	} else {
+		popsize = 1
+	}
+
 	if popsize > qlen {
-		return errors.New("Pop: requested size greater than queue")
+		fmt.Printf("Pop: requested size greater than queue, popping entire queue")
+		popsize = qlen
 	}
 
 	node := qb.queue.Front()
 	out := "Next player(s): "
 
 	for i := 0; i < popsize; i++ {
-
+		// proceed to the next node here
 		c := node.Value.(Player)
-
 		out += c.Name
 
 		if i < (popsize-1) {

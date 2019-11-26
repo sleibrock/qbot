@@ -91,7 +91,9 @@ func (qb *QBot) Connect() {
 	fmt.Printf("Connecting to %s ... \n", qb.Config.Server)
 	qb.conn, err = net.Dial("tcp", qb.Config.Server+":"+qb.Config.Port)
 	if err != nil {
-		log.Fatal("Cannot connect to %s", qb.Config.Server)
+		// Print out the cause of the connection failure
+		// Can be many issues (no connection, lack of route to host, etc)
+		log.Fatal("Network error: %s", err)
 		return
 	}
 	fmt.Printf("Connected to %s\n", qb.Config.Server)

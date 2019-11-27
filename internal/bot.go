@@ -49,11 +49,11 @@ type QBot struct {
 
 // Initializer to create a new QBot
 func NewBot(str *[]byte) (*QBot, error) {
-	
 	// define an empty settings struct
 	config := &Settings{}
 
-	// json parse attempt #2
+	// Take in a json string and attempt to unmarshal it into our
+	// newly created struct
 	err := json.Unmarshal(*str, config)
 	if err != nil {
 		return &QBot{}, err
@@ -67,9 +67,7 @@ func NewBot(str *[]byte) (*QBot, error) {
 		MsgRate: time.Duration(2/3) * time.Millisecond,
 		StartTime: time.Now(),
 	}
-
 	return &qb, nil
-
 }
 
 
@@ -105,7 +103,7 @@ func (qb *QBot) Connect() {
 func (qb *QBot) Disconnect() {
 	qb.conn.Close()
 	upTime := time.Now().Sub(qb.StartTime).Seconds()
-	fmt.Printf("Closed connection, live for %fs", upTime)
+	fmt.Printf("Closed connection, live for %fs\n", upTime)
 }
 
 
@@ -313,18 +311,26 @@ func (qb *QBot) PopPlayers(msg *Message, args []string) error {
 	if len(args) > 0 {
 		popsize, err = strconv.Atoi(args[0])
 		if err != nil {
-			fmt.Printf("Couldn't convert %s to an integer", args[0])
+			fmt.Printf("Couldn't convert %s to an integer\n", args[0])
+			popsize = 1
+		}
+
+		// check if we atoi'd a non-positive number
+		if popsize <= 0 {
+			fmt.Printf("Popsize requested less than zero\n")
 			popsize = 1
 		}
 	} else {
 		popsize = 1
 	}
 
+	// is the requested popsize larger than our queue?
 	if popsize > qlen {
 		fmt.Printf("Pop: requested size greater than queue, popping entire queue")
 		popsize = qlen
 	}
 
+	// begin queue traversal
 	node := qb.queue.Front()
 	out := "Next player(s): "
 
@@ -344,7 +350,6 @@ func (qb *QBot) PopPlayers(msg *Message, args []string) error {
 
 	fmt.Print(out)
 	qb.Say(out)
-
 	return nil
 }
 

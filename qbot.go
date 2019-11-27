@@ -19,12 +19,15 @@ func main() {
 
 	keyfile, err := ioutil.ReadFile(internal.DefaultKeyFile)
 	if err != nil {
+		// when no keyfile exists, create a default settings struct
+		// then re-export the default struct to a file
 		defsets := internal.DefaultSettings()
 		js, err := json.MarshalIndent(defsets, "", "    ")
 		if err != nil {
 			log.Fatal(err)
 		}
 
+		// attempt to write to file
 		err = ioutil.WriteFile(internal.DefaultKeyFile, js, 0644)
 		if err != nil {
 			log.Fatal(err)
@@ -49,13 +52,17 @@ func main() {
 		return
 	}
 
+	// attempt to load the keyfile into the bot
 	bot, err := internal.NewBot(&keyfile) 
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
 
+	// turn this line off when it's no longer needed
 	bot.Debug()
+
+	// start the entire bot process
 	bot.Start()
 }
 
